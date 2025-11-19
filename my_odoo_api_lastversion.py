@@ -147,12 +147,15 @@ async def get_customer_quotes(cust_id: int):
         
         #get detailed order line information for each quote
         for quote in quote_values:
-            solin_attributes = {'fields':['name', 
+            solin_attributes = {'fields':['name',
+                                          'product_id',
                                           'product_uom_qty', 
                                           'price_unit', 
                                           'price_total']}
             solin_values = models.execute_kw(DB, UID, PW, 'sale.order.line', 'read', [quote['order_line']], solin_attributes)
             quote['order_line'] = solin_values  # replace array of line ids by array of retrieved line values
+            for line in solin_values:
+                line['product_id'] = line['product_id'][0] # get the product id
         
         return quote_values
         
@@ -259,7 +262,24 @@ async def send_and_cancel_sale_order(so_id: int):
         return {"Message" : f"Odoo error sending and cancelling SO {so_id}:",
                 "Error" : f"Unexpected  {type(err)} : {errmsg}"}
    
+###
+###  / p r o d u c t s /
+###
 
+@app.get("/products/", tags=["🛒 Products"])
+async def get_products():
+    "get list of all products available"
+    models = xmlrpc.client.ServerProxy(f'{URL}/xmlrpc/2/object')
+    search_conditions = [('sale_ok', '=', True)]
+    read_attributes = ['id', 'name','list_price', 'default_code']
+
+    try:
+        values = models.execute_kw(DB, UID, PW, 'product.product', 'search_read', [search_conditions, read_attributes])
+        return [{'value':c['id'],
+                 'label':c['name']} for c in values]
+    except Exception as err:
+        return {"Message": f"Odoo error:",
+                "Error": f"Unexpected  {type(err)} : {err}"}
 
 ########################################################################
 ########################## INVOICES ####################################
@@ -303,25 +323,6 @@ async def get_customer_invoices(cust_id: int):
         errmsg = str(err)
         return {"Message" : f"Odoo err",
                 "Error" : f"Unexpected  {type(err)} : {errmsg}"}
-
-###
-###  / p r o d u c t s /
-###
-
-@app.get("/products/", tags=["🛒 Products"])
-async def get_products():
-    "get list of all products available"
-    models = xmlrpc.client.ServerProxy(f'{URL}/xmlrpc/2/object')
-    search_conditions = [('sale_ok', '=', True)]
-    read_attributes = ['id', 'name','list_price', 'default_code']
-
-    try:
-        values = models.execute_kw(DB, UID, PW, 'product.product', 'search_read', [search_conditions, read_attributes])
-        return [{'value':c['id'],
-                 'label':c['name']} for c in values]
-    except Exception as err:
-        return {"Message": f"Odoo error:",
-                "Error": f"Unexpected  {type(err)} : {err}"}
 
 ###
 ###  / i n v o i c e s / { i n v o i c e _ i d }
