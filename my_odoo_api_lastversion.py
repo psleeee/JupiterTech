@@ -164,6 +164,35 @@ async def get_customer_quotes(cust_id: int):
         return {"Message" : f"Odoo error:",
                 "Error" : f"Unexpected  {type(err)} : {errmsg}"}
 
+###
+###  / q u o t e s / n e w _ o r d e r
+###
+@app.post("/quotes/new_order", tags=["📋 Quotations"])
+async def create_sale_order(cust_id: int, product_ids: List[int]):
+    "Create a quotation in draft state from a list of products selected by customer"
+    models = xmlrpc.client.ServerProxy(f'{URL}/xmlrpc/2/object')
+    partner_id = {'partner_id': cust_id}
+    pid_fields = {'fields': ['name', 'list_price']}
+
+    try:
+        newso_id = models.execute_kw(DB, UID, PW, 'sale.order', 'create', [partner_id])
+        for pid in product_ids:
+            product = models.execute_kw(DB, UID, PW, 'product.product', 'read', [[pid]], pid_fields)
+            product_info = product[0]
+
+            psol_fields = {'order_id': newso_id, 'product_id': pid, 'name': product_info['name'], 'product_uom_qty': 1.0,
+                           'price_unit': product_info['list_price']}
+            psol = models.execute_kw(DB, UID, PW, 'sale.order.line', 'create', [psol_fields])
+
+        return {
+            "Message": f"Quotation {newso_id} created successfully.",
+            "sale_order_id": newso_id
+        }
+    except Exception as err:
+        errmsg = str(err)
+        return {"Message": f"Odoo error:",
+         "Error": f"Unexpected  {type(err)} : {errmsg}"}
+
 ########################################################################
 ########################## SALES ORDERS ################################
 ########################################################################
