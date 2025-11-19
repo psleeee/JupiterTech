@@ -305,6 +305,25 @@ async def get_customer_invoices(cust_id: int):
                 "Error" : f"Unexpected  {type(err)} : {errmsg}"}
 
 ###
+###  / p r o d u c t s /
+###
+
+@app.get("/products/", tags=["🛒 Products"])
+async def get_products():
+    "get list of all products available"
+    models = xmlrpc.client.ServerProxy(f'{URL}/xmlrpc/2/object')
+    search_conditions = [('sale_ok', '=', True)]
+    read_attributes = ['id', 'name','list_price', 'default_code']
+
+    try:
+        values = models.execute_kw(DB, UID, PW, 'product.product', 'search_read', [search_conditions, read_attributes])
+        return [{'value':c['id'],
+                 'label':c['name']} for c in values]
+    except Exception as err:
+        return {"Message": f"Odoo error:",
+                "Error": f"Unexpected  {type(err)} : {err}"}
+
+###
 ###  / i n v o i c e s / { i n v o i c e _ i d }
 ###
 @app.get("/invoice_info/{invoice_id}", tags=["🧾 Invoices"])
