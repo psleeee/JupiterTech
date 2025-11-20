@@ -20,6 +20,8 @@ import xmlrpc.client
 from typing import List
 import base64
 from urllib.parse import urljoin
+from datetime import datetime
+from typing import Optional
 from pydantic import BaseModel
 
 URL = 'https://edu-heclausanne-jupiter.odoo.com'
@@ -419,7 +421,6 @@ async def get_invoice_preview_url(invoice_id: int):
         )
 
         if preview_data and isinstance(preview_data, dict) and 'url' in preview_data:
-            # *** CHANGE APPLIED HERE ***
             # Combine the base Odoo URL with the relative path provided by Odoo
             full_preview_url = urljoin(URL, preview_data['url'])
             
@@ -436,11 +437,115 @@ async def get_invoice_preview_url(invoice_id: int):
         errmsg = str(err)
         return {"Message": f"Odoo error getting preview URL for Invoice {invoice_id}:",
                 "Error": f"Unexpected {type(err)} : {errmsg}"}
-    
+
 
 ########################################################################
 ########################## DELIVERIES ##################################
 ########################################################################
+
+###
+###  c u s t o m e r s  / { c u s t _ i d } / d e l i v e r i e s
+###
+@app.get("/customers/{cust_id}/deliveries", tags=["🚚 Delivery"])
+async def get_customer_deliveries(cust_id: int):
+    """
+    Delivery overview for a customer:
+    - All sale orders for this customer (state: 'sale' or 'done')
+    - For each order: list of related pickings (deliveries) and a simple delivery_status
+    """
+    models = xmlrpc.client.ServerProxy(f'{URL}/xmlrpc/2/object')
+
+    try:
+        # 1) Get sale orders for this customer that are active / relevant
+        so_search_conditions = [
+            ('partner_id', '=', cust_id),
+            ('state', 'in', ['sale', 'done'])  # confirmed or completed orders
+        ]
+
+        so_fields = ['id', 'name', 'state', 'date_order', 'picking_ids']
+
+        sale_orders = models.execute_kw(
+            DB, UID, PW,
+            'sale.order', 'search_read',
+            [so_search_conditions, so_fields]
+        )
+
+        if not sale_orders:
+            return {
+                "customer_id": cust_id,
+                "orders": [],
+                "Message": "No sale orders found for this customer."
+            }
+
+        result_orders = []
+
+        for so in sale_orders:
+            picking_ids = so.get('picking_ids', [])
+            deliveries = []
+            delivery_status = "no_delivery"
+
+            if picking_ids:
+                # 🔹 Only use fields that actually exist on stock.picking
+                picking_fields = [
+                    'id',
+                    'name',
+                    'state',
+                    'scheduled_date',  # if this errors too, we can swap it for 'date_deadline'
+                    'date_done',
+                ]
+
+                pickings = models.execute_kw(
+                    DB, UID, PW,
+                    'stock.picking', 'read',
+                    [picking_ids],
+                    {'fields': picking_fields}
+                )
+
+                deliveries = [
+                    {
+                        "picking_id": p['id'],
+                        "name": p.get('name'),
+                        "state": p.get('state'),
+                        "scheduled_date": p.get('scheduled_date'),
+                        "date_done": p.get('date_done'),
+                    }
+                    for p in pickings
+                ]
+
+                # 3) Compute a simple delivery_status based on picking states
+                states = [p.get('state') for p in pickings]
+
+                if states and all(s == 'done' for s in states):
+                    delivery_status = "delivered"
+                elif any(s == 'done' for s in states) and any(
+                    s not in ['done', 'cancel'] for s in states
+                ):
+                    delivery_status = "partially_delivered"
+                elif any(s in ['waiting', 'confirmed', 'assigned'] for s in states):
+                    delivery_status = "pending_shipment"
+                else:
+                    delivery_status = "unknown"
+
+            result_orders.append({
+                "order_id": so['id'],
+                "order_name": so.get('name'),
+                "order_state": so.get('state'),
+                "date_order": so.get('date_order'),
+                "delivery_status": delivery_status,
+                "deliveries": deliveries
+            })
+
+        return {
+            "customer_id": cust_id,
+            "orders": result_orders
+        }
+
+    except Exception as err:
+        errmsg = str(err)
+        return {
+            "Message": "Odoo error while fetching deliveries for this customer",
+            "Error": f"Unexpected {type(err)} : {errmsg}"
+        }
 
 ###
 ###  / d e l i v e r y / { s o _ i d }
