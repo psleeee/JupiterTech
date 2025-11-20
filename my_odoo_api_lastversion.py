@@ -46,7 +46,13 @@ def connect_odoo(hosturl, db, user, pw):
         return (uid, common)
     else:
         raise ConnectionError("bad username or password")
-    
+
+class CustomerUpdateRequest(BaseModel):
+    phone: str | None = None
+    mobile: str | None = None
+    email: str | None = None
+    website: str | None = None
+
 # initial setting
 UID, c = connect_odoo(URL, DB, USER, PW)
 
@@ -658,7 +664,50 @@ async def submit_contact_form(form_data: ContactFormRequest):
         errmsg = str(err)
         return {"Message": "Odoo error posting to Discuss:",
                 "Error": f"Unexpected {type(err)} : {errmsg}"}
-    
+
+# /cutomers/update_by_customer/{name}
+@app.post("/customers/update_by_customer/{name}", tags= ["👥Customers & Customer Data"])
+def update_partner_by_customer(name: str, data: CustomerUpdateRequest):
+    """
+    Update customer contact information by his or her name.
+    """
+    try:
+        models = xmlrpc.client.ServerProxy(f'{URL}/xmlrpc/2/object')
+        partner_ids = models.execute_kw(
+            DB, UID, PW,
+            "res.partner", "search",
+            [[["name", "=", name]]]
+        )
+        print(name)
+
+        if not name:
+            return {"Message": "Could not find a customer."}
+
+        partner_id = partner_ids[0]
+
+        updates = {}
+        if data.phone is not None:
+            updates["phone"] = data.phone
+        if data.mobile is not None:
+            updates["mobile"] = data.mobile
+        if data.email is not None:
+            updates["email"] = data.email
+        if data.website is not None:
+            updates["website"] = data.website
+
+        result = models.execute_kw(
+            DB, UID, PW,
+            "res.partner", "write",
+            [[partner_id], updates]
+        )
+
+        return {
+            "updated": result,
+            "fields_changed": updates
+        }
+    except Exception as e:
+        return {"Message": "status code 500."}
+        
 # 
 # for starting api in terminal
 # python -m uvicorn my_odoo_api_lastversion:app --reload --host 127.0.0.1 --port 8000
